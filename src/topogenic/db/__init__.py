@@ -7,6 +7,8 @@ from sqlalchemy import String, ForeignKey, JSON
 from sqlalchemy.orm import DeclarativeBase, Mapped, declared_attr, mapped_column, relationship
 from typing import Any, Iterator, Optional, Tuple
 
+from ..resources import Resource
+
 from topogenic.util.generators import Counter
 
 
@@ -27,6 +29,13 @@ class BaseScope():
 
     def counter(self, name):
         raise KeyError(f"Unable to find counter: {name}")
+
+    @property
+    def resources(self) -> dict[str, Resource]:
+        return {}
+
+    def resource(self, name):
+        raise KeyError(f"Unable to find resource: {name}")
 
 
 class Scope(BaseScope):
@@ -55,7 +64,9 @@ class Scope(BaseScope):
         def __repr__(self):
             return ""
 
-    def __init__(self, parent: Optional["Scope"], name_part: str, kind=None, data=None, counters={}, *args, **kwargs):
+    def __init__(self, parent: Optional["Scope"],
+                 name_part: str, kind=None, data=None,
+                 counters={}, resources={}, *args, **kwargs):
         BaseScope.__init__(self)
         if parent.name != "":
             self.name = f"{ parent.name }::{ name_part }"
@@ -63,6 +74,7 @@ class Scope(BaseScope):
             self.name = name_part
 
         self._counters = counters
+        self._resources = resources
 
         self.kind = kind
         self.data = data
@@ -83,6 +95,18 @@ class Scope(BaseScope):
 
         return self.counters.get(counter)
 
+    @property
+    def resources(self) -> dict[str, Counter]:
+        return {
+            k: v for k, v in chain(self._resources.items(), self.parent.resources.items())
+        }
+
+    def resource(self, resource: str) -> Resource:
+        if resource in self._resources:
+            return self._resources.get(resource)
+
+        return self.resources.get(resource)
+
     def hash(self) -> sha3_512:
         bound = [
             member
@@ -95,8 +119,16 @@ class Scope(BaseScope):
             if callable(getattr(self, member)):
                 dill_hash.update(source.getsource(getattr(self, member)).encode('utf-8'))
 
-        for counter in self.counters:
-            dill_hash.update(dumps(counter).encode('utf-8'))
+        dill_hash.update(dumps({
+            name: counter.state()
+            for name, counter in self.counters.items()
+        }, ).encode('utf-8'))
+
+
+        dill_hash.update(dumps({
+            name: resource.hash()
+            for name, resource in self.resources.items()
+        }).encode('utf-8'))
 
         return dill_hash
 
