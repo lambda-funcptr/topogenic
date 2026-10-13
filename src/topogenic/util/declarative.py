@@ -10,10 +10,14 @@ from topogenic import Operation
 def scope(fn):
     class AutoScope(Scope):
         def __init__(self, *args, **kwargs):
+            self.params = {}
+            if params := kwargs.get("params"):
+                self.params = params
+                kwargs.pop("params")
             super().__init__(*args, **kwargs)
 
         def enumerate(self) -> Iterator[Operation]:
-            yield from fn(self)
+            yield from fn(self, **(self.params))
 
         def hash(self) -> str:
             hash = super().hash()
